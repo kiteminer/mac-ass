@@ -9,6 +9,10 @@ struct NotchView: View {
     var notchWidth: CGFloat
     var topHeight: CGFloat
     @State private var draft = ""
+    @State private var historyPage = 0
+    @State private var shelfPage = 0
+    @State private var queuePage = 0
+    @State private var subtaskPage = 0
     @State private var subtaskDraft = ""
     @StateObject private var connection = PlannerConnection()
     @State private var minutes = 25
@@ -20,8 +24,12 @@ struct NotchView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Image(systemName: store.current == nil ? (music.playing ? "waveform" : "circle.fill") : "timer")
-                    .foregroundStyle(accent).frame(width: 40)
+                ZStack {
+                    Circle().stroke(.white.opacity(0.18), lineWidth: 2.5)
+                    Circle().trim(from: 0, to: store.current == nil ? 0 : min(1, store.state.clock.seconds(at: store.now) / Double(max(1, (store.current?.minutes ?? 25) * 60))))
+                        .stroke(accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
+                    if store.busy { ProgressView().controlSize(.mini) }
+                }.frame(width: 16, height: 16).frame(width: 40)
                 Spacer(minLength: notchWidth)
                 Text(store.current == nil ? (music.playing ? "♫" : "") : store.timeLabel)
                     .font(.system(size: 12, weight: .medium, design: .monospaced)).frame(width: 48)
@@ -39,7 +47,7 @@ struct NotchView: View {
                         Button { store.tab = "settings" } label: { Image(systemName: "gearshape") }.help("Settings")
                         Button { store.pinned.toggle() } label: { Image(systemName: store.pinned ? "pin.fill" : "pin") }.help("Pin panel")
                     }
-                    ScrollView {
+                    VStack {
                         VStack(alignment: .leading, spacing: 10) {
                             if store.tab == "music" { musicView }
                             else if store.tab == "settings" { settingsView }
@@ -49,7 +57,7 @@ struct NotchView: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .scrollIndicators(.hidden)
+
                 }
                 .padding(.horizontal, 16).padding(.bottom, 14).padding(.top, 8)
                 .frame(height: PanelLayout.height(tab: store.tab, hasTask: store.current != nil))
@@ -66,13 +74,14 @@ struct NotchView: View {
             }
         }
         .foregroundStyle(.white).tint(accent).preferredColorScheme(.dark)
-        .buttonStyle(.borderless)
-        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: store.expanded)
+        .buttonStyle(.bordered)
+        .font(.system(size: 14))
+
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: dropTarget)
         .onHover { inside in
             closeTask?.cancel()
             closeTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(inside ? 180 : 600))
+                try? await Task.sleep(for: .milliseconds(inside ? 0 : 600))
                 guard !Task.isCancelled else { return }
                 if inside { store.expanded = true }
                 else if !store.pinned && !dropTarget { store.expanded = false }
@@ -112,7 +121,7 @@ struct NotchView: View {
                     Spacer()
                     Button("Complete", action: store.complete).buttonStyle(.borderedProminent).controlSize(.small)
                 }
-                ForEach(current.subtasks) { sub in
+                ForEach(Array(current.subtasks.dropFirst(subtaskPage * 3).prefix(3))) { sub in
                     Button {
                         guard let index = store.state.tasks.first?.subtasks.firstIndex(where: { $0.id == sub.id }) else { return }
                         store.state.tasks[0].subtasks[index].done.toggle(); store.save()
@@ -121,6 +130,7 @@ struct NotchView: View {
                             .foregroundStyle(sub.done ? .secondary : .primary).font(.subheadline)
                     }
                 }
+                pager(page: $subtaskPage, count: current.subtasks.count)
                 HStack {
                     TextField("Add a subtask…", text: $subtaskDraft)
                         .textFieldStyle(.plain).font(.caption)
@@ -128,8 +138,9 @@ struct NotchView: View {
                     Button(action: addSubtask) { Image(systemName: "plus.circle") }.help("Add subtask")
                 }.padding(8).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 if store.state.tasks.count > 1 {
-                    DisclosureGroup("Up next · \(store.state.tasks.count - 1)") {
-                        ForEach(Array(store.state.tasks.dropFirst())) { task in
+                    pager(page: $queuePage, count: store.state.tasks.count - 1)
+                    DisclosureGroup("Queued tasks · \(store.state.tasks.count - 1)") {
+                        ForEach(Array(store.state.tasks.dropFirst(1 + queuePage * 3).prefix(3))) { task in
                             HStack {
                                 Text(task.title).lineLimit(2); Spacer(); Text("\(task.minutes) min").foregroundStyle(.secondary)
                                 Button {
@@ -161,9 +172,9 @@ struct NotchView: View {
                     .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
             }
             if !store.state.shelf.isEmpty {
-            ScrollView(.horizontal) {
+            VStack {
                 HStack(spacing: 8) {
-                    ForEach(store.state.shelf) { item in
+                    ForEach(Array(store.state.shelf.dropFirst(shelfPage * 3).prefix(3))) { item in
                         VStack(alignment: .leading, spacing: 8) {
                             if let url = item.url {
                                 Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().scaledToFit().frame(width: 36, height: 36)
@@ -186,17 +197,19 @@ struct NotchView: View {
                 }
             }
             }
+            pager(page: $shelfPage, count: store.state.shelf.count)
             DisclosureGroup("Clipboard history · \(store.history.count)") {
                 if !store.clipboardEnabled {
                     Button("Enable text history") { store.clipboardEnabled = true }
                     Text("Kept in memory until you quit. Do not copy secrets here.").font(.caption).foregroundStyle(.secondary)
                 } else {
+                    pager(page: $historyPage, count: store.history.count)
                     HStack {
                         Button("Clear") { store.history = [] }
                         Spacer()
                         Button("Disable") { store.clipboardEnabled = false }
                     }.font(.caption)
-                    ForEach(Array(store.history.enumerated()), id: \.offset) { _, text in
+                    ForEach(Array(store.history.enumerated()).dropFirst(historyPage * 3).prefix(3), id: \.offset) { _, text in
                         HStack {
                             Button { store.copy(text) } label: { Text(text).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading) }
                             Button { store.addText(text) } label: { Image(systemName: "pin") }.help("Save to shelf")
@@ -224,7 +237,7 @@ struct NotchView: View {
                     ProgressView().controlSize(.small)
                     Button("Cancel") { store.operation?.cancel() }
                 } else {
-                    Button("Plan list") { submittedDraft = draft; store.makePlan(draft) }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Auto plan") { submittedDraft = draft; store.makePlan(draft); draft = "" }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }.font(.caption)
         }
@@ -307,6 +320,15 @@ struct NotchView: View {
             Toggle("Music controls", isOn: $music.enabled).onChange(of: music.enabled) { _, enabled in if enabled { music.refresh() } }
             Text("When enabled, macOS requests permission to control the selected player. Other players are not supported yet.").font(.caption).foregroundStyle(.secondary)
             Button("Quit MacAss") { NSApp.terminate(nil) }.foregroundStyle(.secondary)
+        }
+    }
+    private func pager(page: Binding<Int>, count: Int) -> some View {
+        HStack {
+            if count > 3 {
+                Button("Previous") { page.wrappedValue = max(0, page.wrappedValue - 1) }.disabled(page.wrappedValue == 0)
+                Text("Page \(page.wrappedValue + 1)").font(.caption)
+                Button("Next") { page.wrappedValue += 1 }.disabled((page.wrappedValue + 1) * 3 >= count)
+            }
         }
     }
     private func submitTask() {

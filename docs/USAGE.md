@@ -7,7 +7,7 @@ A native shelf around the MacBook notch with tasks, subtasks, a focus timer, fil
 Install Xcode Command Line Tools (`xcode-select --install`), then:
 
 ```sh
-git clone --branch fix/notch-experience https://github.com/kiteminer/mac-ass.git
+git clone --branch fix/planning-and-panel https://github.com/kiteminer/mac-ass.git
 cd mac-ass
 bash scripts/build.sh
 open build/MacAss.app
@@ -29,7 +29,9 @@ Select Ollama (`http://127.0.0.1:11434`) or MLX / OpenAI-compatible (for example
 
 Paste `clean up, update resume (add tools, update workplace), go shopping, home first` and click **Plan list**. Requests go only to loopback, without clipboard history or shelf files. The shelf remains usable during planning and you can cancel. Results append to the queue and start only when it was empty.
 
-The planner returns only known task IDs and estimated durations. Validation checks completeness, duplicates, the 5–180 minute range, and the home-first rule. Explicit durations such as `20 min` are preserved. There are at most two requests of up to 100 seconds each. On failure, the original list uses 25-minute defaults. No commands, file access, or independent actions are available to the planner. Duration estimates and semantic ordering depend on the model. Separate ambiguous tasks with commas; location detection uses simple keyword rules.
+Auto plan extracts independent tasks and subtasks from free text in the input language, then estimates durations and order. Output is checked for bounded counts, titles and durations. Semantic correctness depends on the model. Failed requests no longer silently add an unsplit fallback task. Planning continues after the panel closes; completion or failure is shown on the next opening and signalled by a sound. Existing active tasks remain unchanged; new tasks enter the queue.
+
+The panel sits below the menu bar to avoid obscuring status items. Collections use Previous/Next pages rather than scrolling. Clipboard capture is enabled for fresh installs; existing preferences remain respected.
 
 ## Verify on a Mac
 

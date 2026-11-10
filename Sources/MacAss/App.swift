@@ -6,6 +6,11 @@ import NotchCore
 final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+        let editor = super.fieldEditor(createFlag, for: object)
+        (editor as? NSTextView)?.allowsUndo = true
+        return editor
+    }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             let selectors: [String: Selector] = ["c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:)),
@@ -24,6 +29,7 @@ final class NotchPanel: NSPanel {
     private var panel: NotchPanel!
     private var root: NotchRootView!
     private var status: NSStatusItem!
+    private var verificationBackdrop: NSWindow?
     private let pointer = PointerWatcher()
     private var layout: NotchLayout?
     private var subscriptions = Set<AnyCancellable>()
@@ -50,6 +56,11 @@ final class NotchPanel: NSPanel {
         })
         if let index = CommandLine.arguments.firstIndex(of: "--verify-scene"), CommandLine.arguments.count > index + 1 {
             let scene = CommandLine.arguments[index + 1]
+            if let screen = NSScreen.main {
+                let backdrop = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                backdrop.contentView = NSHostingView(rootView: LinearGradient(colors: [Color(red: 0.18, green: 0.27, blue: 0.36), Color(red: 0.43, green: 0.52, blue: 0.57)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                backdrop.isReleasedWhenClosed = false; backdrop.orderBack(nil); verificationBackdrop = backdrop
+            }
             store.installVerificationScene(scene); music.installVerificationScene()
             store.expanded = scene != "compact"; store.pinned = true
         } else if CommandLine.arguments.contains("--show-window") { openShelf(); store.pinned = true }
@@ -64,6 +75,7 @@ final class NotchPanel: NSPanel {
         pointer.stop(); panel?.close(); layout = next
         panel = NotchPanel(contentRect: next.windowFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.level = .statusBar; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
         root = NotchRootView(frame: CGRect(origin: .zero, size: next.windowFrame.size))

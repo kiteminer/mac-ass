@@ -74,7 +74,8 @@ struct NotchView: View {
     }
     private func nav(_ tab: String, _ title: String, _ symbol: String) -> some View {
         Button { store.tab = tab } label: {
-            Image(systemName: symbol).frame(width: 28, height: 22)
+            Label(title == "Clipboard" ? "Clips" : title, systemImage: symbol)
+                .font(.system(size: 12, weight: .medium)).frame(height: 22)
                 .foregroundStyle(store.tab == tab ? blue : .white.opacity(0.65))
         }.help(title).accessibilityLabel(title)
     }
@@ -351,7 +352,7 @@ struct NotchView: View {
 private struct PanelButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.padding(.horizontal, 8).padding(.vertical, 6)
+        configuration.label.padding(.horizontal, 7).padding(.vertical, 6)
             .background(.white.opacity(configuration.isPressed ? 0.2 : 0.08), in: RoundedRectangle(cornerRadius: 7))
             .opacity(enabled ? 1 : 0.35)
             .contentShape(RoundedRectangle(cornerRadius: 7))

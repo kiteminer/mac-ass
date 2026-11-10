@@ -27,7 +27,7 @@ struct SavedState: Codable {
     @Published var plansAdded = 0
     @Published var notice = ""
     @Published var now = Date()
-    @Published var clipboardEnabled = UserDefaults.standard.bool(forKey: "clipboardEnabled") {
+    @Published var clipboardEnabled = (UserDefaults.standard.object(forKey: "clipboardEnabled") as? Bool ?? true) {
         didSet { UserDefaults.standard.set(clipboardEnabled, forKey: "clipboardEnabled"); pasteboardCount = NSPasteboard.general.changeCount; if !clipboardEnabled { history = [] } }
     }
     var operation: Task<Void, Never>?
@@ -83,7 +83,7 @@ struct SavedState: Codable {
     }
     func makePlan(_ input: String) {
         guard !busy else { return }
-        busy = true; notice = "Planning… you can keep using the shelf."
+        busy = true; notice = "Planning in background. You can close this panel."; expanded = false
         let config = state.planner
         operation = Task {
             defer { busy = false; operation = nil }
@@ -91,11 +91,12 @@ struct SavedState: Codable {
                 let result = try await LocalPlanner.plan(input, configuration: config)
                 try Task.checkCancellation()
                 let wasEmpty = state.tasks.isEmpty
+                guard !result.usedFallback else { notice = "Planning failed. No tasks added. Check the model and retry."; NSSound(named: "Glass")?.play(); return }
                 state.tasks += result.tasks
                 plansAdded += 1
                 if wasEmpty { startFirst() }
                 notice = result.usedFallback ? "The service is unavailable or returned an invalid plan. Added the original list; you can adjust the time." : "Your plan is ready. Durations are estimates and can be adjusted."
-                tab = "tasks"; save()
+                tab = "tasks"; NSSound(named: "Glass")?.play(); save()
             } catch is CancellationError { notice = "Planning cancelled." }
             catch { notice = "Check your list (up to 20 tasks) and the local server address in settings." }
         }

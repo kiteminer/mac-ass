@@ -78,7 +78,7 @@ final class NotchPanel: NSPanel {
         if !expanded { panel.resignKey() }
         let width: CGFloat = expanded ? 400 : notchWidth + 88
         let height: CGFloat = topHeight + (expanded ? PanelLayout.height(tab: store.tab, hasTask: store.current != nil) : 0)
-        let frame = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height)
+        let frame = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - topHeight - height, width: width, height: height)
         guard panel.frame != frame else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22

@@ -93,7 +93,12 @@ final class NotchPanel: NSPanel {
     private func updateInteraction(open: Bool) {
         guard let layout else { return }
         root.activeRect = layout.localRect(expanded: open)
-        pointer.interactiveRect = layout.screenRect(expanded: open)
+        var interactive = layout.screenRect(expanded: open)
+        if open {
+            interactive.size.height -= layout.notchHeight + 2
+        }
+        pointer.interactiveRect = interactive
+        root.activeRect = interactive.offsetBy(dx: -layout.windowFrame.minX, dy: -layout.windowFrame.minY)
         pointer.setInside(open)
         if !open { panel.resignKey() }
         panel.ignoresMouseEvents = !pointer.interactiveRect.contains(NSEvent.mouseLocation)

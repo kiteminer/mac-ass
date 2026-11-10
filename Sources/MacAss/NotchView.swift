@@ -29,7 +29,13 @@ struct NotchView: View {
         }
         .frame(width: size.width, height: size.height, alignment: .top)
         .background(.black)
-        .clipShape(NotchShape(topCornerRadius: store.expanded ? 8 : 4, bottomCornerRadius: store.expanded ? 24 : 12))
+        .mask {
+            VStack(spacing: 0) {
+                Rectangle().frame(width: layout.notchWidth, height: layout.notchHeight)
+                NotchShape(topCornerRadius: store.expanded ? 8 : 4, bottomCornerRadius: store.expanded ? 24 : 12)
+                    .frame(width: size.width, height: size.height - layout.notchHeight)
+            }
+        }
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9), value: store.expanded)
         .frame(width: layout.windowFrame.width, height: layout.windowFrame.height, alignment: .top)
         .foregroundStyle(.white).tint(blue).preferredColorScheme(.dark)

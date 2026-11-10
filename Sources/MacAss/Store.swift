@@ -128,7 +128,12 @@ struct SavedState: Codable {
     }
     func startFirst() {
         announced = false
-        if let current, current.minutes > 0 { state.clock.start(minutes: current.minutes) } else { state.clock = FocusClock() }
+        if let current, current.minutes > 0 {
+            state.clock.start(minutes: current.minutes)
+            if let seconds = current.remainingSeconds {
+                state.clock.remaining = seconds; state.clock.deadline = nil; state.clock.resume()
+            }
+        } else { state.clock = FocusClock() }
         now = Date()
     }
     @discardableResult func addSubtask(_ text: String) -> Bool {
@@ -146,8 +151,7 @@ struct SavedState: Codable {
     }
     func activateTask(_ id: UUID) {
         guard let i = state.tasks.firstIndex(where: { $0.id == id }), i > 0 else { return }
-        let remaining = Int(ceil(state.clock.seconds() / 60))
-        state.tasks[0].minutes = remaining
+        state.tasks[0].remainingSeconds = state.clock.seconds()
         let task = state.tasks.remove(at: i); state.tasks.insert(task, at: 0)
         startFirst(); save()
     }

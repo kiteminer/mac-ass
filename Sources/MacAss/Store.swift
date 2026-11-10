@@ -105,6 +105,11 @@ struct SavedState: Codable {
         if let current, current.minutes > 0 { state.clock.start(minutes: current.minutes) } else { state.clock = FocusClock() }
         now = Date()
     }
+    func addSubtask(_ text: String) {
+        let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !state.tasks.isEmpty, state.tasks[0].subtasks.count < 30 else { return }
+        state.tasks[0].subtasks.append(Subtask(String(title.prefix(200)))); save()
+    }
     func complete() {
         guard !state.tasks.isEmpty else { return }
         state.tasks.removeFirst(); startFirst(); save()

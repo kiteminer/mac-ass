@@ -1,10 +1,21 @@
 import AppKit
 import SwiftUI
 import Combine
+import NotchCore
 
 final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            let selectors: [String: Selector] = ["c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:)),
+                "x": #selector(NSText.cut(_:)), "a": #selector(NSText.selectAll(_:)),
+                "z": NSSelectorFromString(event.modifierFlags.contains(.shift) ? "redo:" : "undo:")]
+            if let key = event.charactersIgnoringModifiers?.lowercased(), let selector = selectors[key],
+               NSApp.sendAction(selector, to: nil, from: self) { return true }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -13,6 +24,8 @@ final class NotchPanel: NSPanel {
     var panel: NotchPanel!
     var status: NSStatusItem!
     var subscription: AnyCancellable?
+    var pointerTimer: Timer?
+    var outsideSince: Date?
     var notchWidth: CGFloat = 180
     var topHeight: CGFloat = 32
     var screen: NSScreen?
@@ -32,12 +45,23 @@ final class NotchPanel: NSPanel {
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items { item.target = self }
         status.menu = menu
+        installEditMenu()
         configureScreen()
-        subscription = store.$expanded.removeDuplicates().sink { [weak self] expanded in
-            self?.resize(expanded: expanded)
+        pointerTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.store.expanded, !self.store.pinned else { return }
+                if self.panel.frame.contains(NSEvent.mouseLocation) { self.outsideSince = nil }
+                else if let since = self.outsideSince, Date().timeIntervalSince(since) > 0.7 {
+                    self.store.expanded = false; self.panel.resignKey(); self.outsideSince = nil
+                } else if self.outsideSince == nil { self.outsideSince = Date() }
+            }
+        }
+        subscription = store.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { guard let self else { return }; self.resize(expanded: self.store.expanded) }
         }
         NotificationCenter.default.addObserver(self, selector: #selector(configureScreen), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         panel.orderFrontRegardless()
+        if CommandLine.arguments.contains("--show-window") { openShelf(); store.pinned = true }
     }
     @objc func configureScreen() {
         screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
@@ -51,16 +75,30 @@ final class NotchPanel: NSPanel {
     }
     func resize(expanded: Bool) {
         guard let panel, let screen else { return }
-        let width: CGFloat = expanded ? 460 : notchWidth + 140
-        let height: CGFloat = topHeight + (expanded ? 490 : 0)
+        if !expanded { panel.resignKey() }
+        let width: CGFloat = expanded ? 400 : notchWidth + 88
+        let height: CGFloat = topHeight + (expanded ? PanelLayout.height(tab: store.tab, hasTask: store.current != nil) : 0)
         let frame = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height)
+        guard panel.frame != frame else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22
             panel.animator().setFrame(frame, display: true)
         }
     }
-    @objc func openShelf() { store.tab = "tasks"; store.expanded = true; store.pinned = true; panel.makeKeyAndOrderFront(nil) }
+    @objc func openShelf() { store.tab = "tasks"; store.expanded = true; panel.makeKeyAndOrderFront(nil) }
     @objc func openSettings() { openShelf(); store.tab = "settings" }
+    func installEditMenu() {
+        let menu = NSMenu()
+        let appItem = NSMenuItem(); let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit MacAss", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu; menu.addItem(appItem)
+        let editItem = NSMenuItem(); let edit = NSMenu(title: "Edit")
+        for (title, selector, key) in [("Undo", "undo:", "z"), ("Redo", "redo:", "Z"),
+            ("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+            edit.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
+        }
+        editItem.submenu = edit; menu.addItem(editItem); NSApp.mainMenu = menu
+    }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) { store.operation?.cancel(); store.save() }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import NotchCore
 
 struct NotchView: View {
     @ObservedObject var store: Store
@@ -8,6 +9,8 @@ struct NotchView: View {
     var notchWidth: CGFloat
     var topHeight: CGFloat
     @State private var draft = ""
+    @State private var subtaskDraft = ""
+    @StateObject private var connection = PlannerConnection()
     @State private var minutes = 25
     @State private var submittedDraft = ""
     @State private var dropTarget = false
@@ -17,11 +20,11 @@ struct NotchView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Image(systemName: store.current == nil ? "tray" : "timer")
-                    .foregroundStyle(accent).frame(width: 64)
+                Image(systemName: store.current == nil ? (music.playing ? "waveform" : "circle.fill") : "timer")
+                    .foregroundStyle(accent).frame(width: 40)
                 Spacer(minLength: notchWidth)
-                Text(store.current == nil ? "Shelf" : store.timeLabel)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced)).frame(width: 76)
+                Text(store.current == nil ? (music.playing ? "♫" : "") : store.timeLabel)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced)).frame(width: 48)
             }
             .frame(height: topHeight)
             .contentShape(Rectangle())
@@ -30,17 +33,17 @@ struct NotchView: View {
             if store.expanded {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 6) {
-                        tabButton("Tasks & clipboard", "tasks", "square.stack")
+                        tabButton("Focus", "tasks", "square.stack")
                         tabButton("Music", "music", "music.note")
                         Spacer(minLength: 0)
                         Button { store.tab = "settings" } label: { Image(systemName: "gearshape") }.help("Settings")
                         Button { store.pinned.toggle() } label: { Image(systemName: store.pinned ? "pin.fill" : "pin") }.help("Pin panel")
                     }
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 10) {
                             if store.tab == "music" { musicView }
                             else if store.tab == "settings" { settingsView }
-                            else { taskView; Divider(); shelfView; Divider(); composer }
+                            else { composer; if store.current != nil { taskView }; Divider(); shelfView }
                             if !store.notice.isEmpty {
                                 Text(store.notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                             }
@@ -48,11 +51,12 @@ struct NotchView: View {
                     }
                     .scrollIndicators(.hidden)
                 }
-                .padding(20).frame(height: 490)
+                .padding(.horizontal, 16).padding(.bottom, 14).padding(.top, 8)
+                .frame(height: PanelLayout.height(tab: store.tab, hasTask: store.current != nil))
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .frame(width: store.expanded ? 460 : notchWidth + 140)
+        .frame(width: store.expanded ? 400 : notchWidth + 88)
         .background(dropTarget ? Color(red: 0.04, green: 0.09, blue: 0.15) : Color.black)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24))
         .overlay(alignment: .bottom) {
@@ -71,10 +75,14 @@ struct NotchView: View {
                 try? await Task.sleep(for: .milliseconds(inside ? 180 : 600))
                 guard !Task.isCancelled else { return }
                 if inside { store.expanded = true }
-                else if !store.pinned && !store.busy && draft.isEmpty && !dropTarget { store.expanded = false }
+                else if !store.pinned && !dropTarget { store.expanded = false }
             }
         }
         .onDrop(of: [UTType.fileURL, UTType.utf8PlainText], isTargeted: $dropTarget, perform: acceptDrop)
+        .onExitCommand { store.pinned = false; store.expanded = false }
+        .onChange(of: store.expanded) { _, open in
+            if open && store.current == nil && music.playing && draft.isEmpty && store.tab != "settings" { store.tab = "music" }
+        }
         .onChange(of: store.plansAdded) { _, _ in if draft == submittedDraft { draft = "" } }
         .onChange(of: dropTarget) { _, value in if value { store.expanded = true; store.tab = "tasks" } }
     }
@@ -86,7 +94,7 @@ struct NotchView: View {
     }
     private var taskView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("NOW").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            if store.current != nil { Text("NOW").font(.caption2.weight(.semibold)).foregroundStyle(.secondary) }
             if let current = store.current {
                 HStack {
                     Text(current.title).font(.headline).lineLimit(3)
@@ -113,6 +121,12 @@ struct NotchView: View {
                             .foregroundStyle(sub.done ? .secondary : .primary).font(.subheadline)
                     }
                 }
+                HStack {
+                    TextField("Add a subtask…", text: $subtaskDraft)
+                        .textFieldStyle(.plain).font(.caption)
+                        .onSubmit { addSubtask() }
+                    Button(action: addSubtask) { Image(systemName: "plus.circle") }.help("Add subtask")
+                }.padding(8).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 if store.state.tasks.count > 1 {
                     DisclosureGroup("Up next · \(store.state.tasks.count - 1)") {
                         ForEach(Array(store.state.tasks.dropFirst())) { task in
@@ -125,16 +139,13 @@ struct NotchView: View {
                         }
                     }.font(.caption)
                 }
-            } else {
-                Text("What are we doing today?").font(.title3.weight(.semibold))
-                Text("Add a task or paste your to-do list below.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
     private var shelfView: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Shelf").font(.headline)
+                Text("Saved").font(.caption.weight(.semibold))
                 Text("\(store.state.shelf.count)").foregroundStyle(.secondary)
                 Spacer()
                 Button { chooseFiles() } label: { Image(systemName: "plus") }.help("Add files")
@@ -145,10 +156,11 @@ struct NotchView: View {
                 }.font(.caption)
             }
             if store.state.shelf.isEmpty {
-                Text("Drop a file or text here, then drag it into another app.")
-                    .font(.caption).foregroundStyle(.secondary).padding(16).frame(maxWidth: .infinity)
+                Label("Drop files or text here", systemImage: "tray.and.arrow.down")
+                    .font(.caption).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity)
                     .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
             }
+            if !store.state.shelf.isEmpty {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(store.state.shelf) { item in
@@ -173,6 +185,7 @@ struct NotchView: View {
                     }
                 }
             }
+            }
             DisclosureGroup("Clipboard history · \(store.history.count)") {
                 if !store.clipboardEnabled {
                     Button("Enable text history") { store.clipboardEnabled = true }
@@ -187,6 +200,7 @@ struct NotchView: View {
                         HStack {
                             Button { store.copy(text) } label: { Text(text).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading) }
                             Button { store.addText(text) } label: { Image(systemName: "pin") }.help("Save to shelf")
+                            Button { store.history.removeAll { $0 == text } } label: { Image(systemName: "trash") }.help("Delete entry")
                         }.font(.caption).padding(.vertical, 5).onDrag { NSItemProvider(object: text as NSString) }
                     }
                 }
@@ -195,14 +209,16 @@ struct NotchView: View {
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Clean up, update resume (experience, tools)…", text: $draft, axis: .vertical)
-                .lineLimit(2...5).textFieldStyle(.roundedBorder)
+            TextField("Add a task…", text: $draft)
+                .textFieldStyle(.plain).padding(10)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .onSubmit { submitTask() }
             HStack {
                 Picker("Minutes", selection: $minutes) {
                     Text("No timer").tag(0)
                     ForEach([5, 15, 25, 45, 60], id: \.self) { n in Text("\(n) min").tag(n) }
-                }.frame(width: 105)
-                Button("Add") { store.addManual(draft, minutes: minutes); draft = "" }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.labelsHidden().frame(width: 90)
+                Button("Add", action: submitTask).disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Spacer()
                 if store.busy {
                     ProgressView().controlSize(.small)
@@ -214,40 +230,49 @@ struct NotchView: View {
         }
     }
     private var musicView: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 16) {
-                Image(systemName: "waveform").font(.system(size: 38)).foregroundStyle(accent)
-                    .frame(width: 76, height: 76).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(music.title).font(.title3.weight(.semibold)).lineLimit(2)
-                    Text(music.artist).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Group {
+                    if let artwork = music.artwork { Image(nsImage: artwork).resizable().scaledToFill() }
+                    else { Image(systemName: "music.note").font(.system(size: 26)).foregroundStyle(accent) }
+                }.frame(width: 64, height: 64).background(.white.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(music.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text(music.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 22) {
+                        Button { music.command("previous track") } label: { Image(systemName: "backward.fill") }.help("Previous track")
+                        Button { music.command("playpause") } label: { Image(systemName: music.playing ? "pause.fill" : "play.fill") }.help("Play or pause")
+                        Button { music.command("next track") } label: { Image(systemName: "forward.fill") }.help("Next track")
+                    }.disabled(!music.enabled)
                 }
+                Spacer(minLength: 0)
+                TimelineView(.animation(minimumInterval: 0.15, paused: !music.playing || reduceMotion)) { context in
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(0..<5) { i in
+                            Capsule().fill(accent.opacity(0.8)).frame(width: 3,
+                                height: music.playing ? 5 + 15 * abs(sin(context.date.timeIntervalSinceReferenceDate * 3 + Double(i))) : 4)
+                        }
+                    }.frame(width: 25, height: 24)
+                }.accessibilityLabel(music.playing ? "Playing" : "Paused")
             }
-            if music.enabled {
-                HStack(spacing: 32) {
-                    Button { music.command("previous track") } label: { Image(systemName: "backward.fill") }
-                    Button { music.command("playpause") } label: { Image(systemName: music.playing ? "pause.fill" : "play.fill").font(.title) }
-                    Button { music.command("next track") } label: { Image(systemName: "forward.fill") }
-                }.frame(maxWidth: .infinity)
-            } else {
-                Button("Connect a player in settings") { store.tab = "settings" }
-            }
+            ProgressView(value: min(1, max(0, music.position / music.duration))).tint(accent)
+            if !music.enabled { Button("Enable music") { music.enabled = true } }
             if !music.message.isEmpty { Text(music.message).font(.caption).foregroundStyle(.secondary) }
-            Divider()
             Button { store.tab = "tasks" } label: {
                 HStack {
                     Image(systemName: "square.stack")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(store.current?.title ?? "Tasks & clipboard").lineLimit(2)
-                        Text("Open shelf and clipboard history").font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.current?.title ?? "Open workspace").font(.caption.weight(.medium)).lineLimit(1)
+                        Text("Tasks, files & clipboard").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if store.current != nil { Text(store.timeLabel).monospacedDigit() }
-                    Image(systemName: "chevron.right")
-                }.padding(14).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    if store.current != nil { Text(store.timeLabel).font(.caption).monospacedDigit() }
+                    Image(systemName: "chevron.right").font(.caption)
+                }.padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
             }
             if store.current != nil {
-                HStack { ForEach([5, 10, 15], id: \.self) { n in Button("+\(n) min") { store.addTime(n) }.buttonStyle(.bordered) } }
+                HStack { ForEach([5, 10, 15], id: \.self) { n in Button("+\(n) min") { store.addTime(n) }.buttonStyle(.bordered).controlSize(.small) } }
             }
         }
     }
@@ -255,6 +280,19 @@ struct NotchView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Settings").font(.title2.weight(.semibold))
             Text("Local planner").font(.headline)
+            Text("Already using ollama run? Keep it running. Use Ollama below, click Check connection, then choose your installed model.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button(connection.checking ? "Checking…" : "Check connection") { connection.check(store.state.planner) }.disabled(connection.checking)
+                Button("Copy server command") { store.copy("ollama serve") }
+            }.font(.caption)
+            Text(connection.status).font(.caption).foregroundStyle(.secondary)
+            if !connection.models.isEmpty {
+                Menu("Choose installed model") {
+                    ForEach(connection.models, id: \.self) { name in
+                        Button(name) { store.state.planner.model = name; store.save() }
+                    }
+                }
+            }
             Picker("Protocol", selection: $store.state.planner.openAICompatible) {
                 Text("Ollama").tag(false); Text("MLX / OpenAI-compatible").tag(true)
             }
@@ -265,17 +303,27 @@ struct NotchView: View {
             Button("Save settings") { store.save(); store.notice = "Settings saved." }
             Divider()
             Toggle("Text clipboard history", isOn: $store.clipboardEnabled)
-            Picker("Player", selection: $music.player) { Text("Apple Music").tag("Music"); Text("Spotify").tag("Spotify") }
+            Picker("Player", selection: $music.player) { Text("Automatic").tag("Auto"); Text("Apple Music").tag("Music"); Text("Spotify").tag("Spotify") }
             Toggle("Music controls", isOn: $music.enabled).onChange(of: music.enabled) { _, enabled in if enabled { music.refresh() } }
             Text("When enabled, macOS requests permission to control the selected player. Other players are not supported yet.").font(.caption).foregroundStyle(.secondary)
             Button("Quit MacAss") { NSApp.terminate(nil) }.foregroundStyle(.secondary)
         }
     }
+    private func submitTask() {
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if (try? TaskParser.parse(draft)) != nil { store.addManual(draft, minutes: minutes); draft = "" }
+        else { store.notice = "Enter 1–20 tasks, up to 4,000 characters." }
+    }
+    private func addSubtask() { store.addSubtask(subtaskDraft); subtaskDraft = "" }
     private func chooseFiles() {
+        let wasPinned = store.pinned
         store.pinned = true
         let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         panel.begin { result in
-            if result == .OK { Task { @MainActor in panel.urls.forEach(store.addFile) } }
+            Task { @MainActor in
+                store.pinned = wasPinned
+                if result == .OK { panel.urls.forEach(store.addFile) }
+            }
         }
     }
     private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {

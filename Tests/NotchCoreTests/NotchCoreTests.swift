@@ -60,3 +60,12 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertEqual(restored.seconds(at: now.addingTimeInterval(10_000)), 0)
     }
 }
+
+final class PanelLayoutTests: XCTestCase {
+    func testPanelSizesFollowContent() {
+        XCTAssertEqual(PanelLayout.height(tab: "music", hasTask: false), 230)
+        XCTAssertEqual(PanelLayout.height(tab: "tasks", hasTask: false), 240)
+        XCTAssertEqual(PanelLayout.height(tab: "tasks", hasTask: true), 340)
+        XCTAssertEqual(PanelLayout.height(tab: "settings", hasTask: false), 390)
+    }
+}

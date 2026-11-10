@@ -18,7 +18,7 @@ struct SavedState: Codable {
 
 @MainActor final class Store: ObservableObject {
     nonisolated static let directory: URL = {
-        if CommandLine.arguments.contains("--verify-scene") || CommandLine.arguments.contains("--verify-editing") { return FileManager.default.temporaryDirectory.appendingPathComponent("MacAss-verification") }
+        if CommandLine.arguments.contains("--verify-scene") || CommandLine.arguments.contains("--verify-editing") || CommandLine.arguments.contains("--verify-hover") { return FileManager.default.temporaryDirectory.appendingPathComponent("MacAss-verification") }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacAss")
     }()
     private let storageURL: URL

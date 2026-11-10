@@ -63,6 +63,8 @@ final class NotchPanel: NSPanel {
             }
             store.installVerificationScene(scene); music.installVerificationScene()
             store.expanded = scene != "compact"; store.pinned = true
+        } else if CommandLine.arguments.contains("--verify-hover") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.verifyHover() }
         } else if CommandLine.arguments.contains("--verify-editing") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.verifyEditing() }
         } else if CommandLine.arguments.contains("--show-window") { openShelf(); store.pinned = true }
@@ -130,6 +132,21 @@ final class NotchPanel: NSPanel {
             edit.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
         }
         editItem.submenu = edit; menu.addItem(editItem); NSApp.mainMenu = menu
+    }
+    private func verifyHover() {
+        guard let layout else { NSApp.terminate(nil); return }
+        let originalFrame = panel.frame
+        let primaryTop = NSScreen.screens.first?.frame.maxY ?? layout.screen.maxY
+        CGWarpMouseCursorPosition(CGPoint(x: layout.centerX, y: primaryTop - layout.screen.maxY + 2))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let opened = self.store.expanded && self.panel.frame == originalFrame
+            CGWarpMouseCursorPosition(CGPoint(x: layout.centerX + 350, y: primaryTop - layout.screen.maxY + 240))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                let passed = opened && !self.store.expanded && self.panel.frame == originalFrame
+                try? (passed ? "passed" : "failed").write(to: URL(fileURLWithPath: "/tmp/MacAss-hover-result.txt"), atomically: true, encoding: .utf8)
+                NSApp.terminate(nil)
+            }
+        }
     }
     private func verifyEditing() {
         // Runs inside the real AppKit event loop, isolated from the user's state.

@@ -17,6 +17,11 @@ jobs:
           open -n build/MacAss.app --args --verify-editing
           sleep 5
           test "$(cat /tmp/MacAss-editing-result.txt)" = "passed"
+      - name: Verify hover and stable host frame
+        run: |
+          open -n build/MacAss.app --args --verify-hover
+          sleep 5
+          test "$(cat /tmp/MacAss-hover-result.txt)" = "passed"
       - name: Verify populated window states
         run: |
           mkdir -p build/screenshots

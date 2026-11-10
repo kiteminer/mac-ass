@@ -6,6 +6,7 @@ let package = Package(
     targets: [
         .target(name: "NotchCore"),
         .executableTarget(name: "MacAss", dependencies: ["NotchCore"]),
-        .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"])
+        .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"]),
+        .testTarget(name: "MacAssTests", dependencies: ["MacAss", "NotchCore"])
     ]
 )

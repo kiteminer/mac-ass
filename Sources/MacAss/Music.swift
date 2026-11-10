@@ -25,9 +25,11 @@ import SwiftUI
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        RunLoop.main.add(timer!, forMode: .common)
         refresh()
     }
     func refresh() {
+        guard !CommandLine.arguments.contains("--verify-scene") else { return }
         guard enabled, !polling else { return }
         let candidates = (player == "Auto" ? ["Spotify", "Music"] : [player]).filter {
             !NSRunningApplication.runningApplications(withBundleIdentifier: $0 == "Spotify" ? "com.spotify.client" : "com.apple.Music").isEmpty
@@ -96,4 +98,11 @@ import SwiftUI
 }
 private extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+extension Music {
+    func installVerificationScene() {
+        title = "Night Drive"; artist = "Instrumental"; playing = true; position = 102; duration = 268
+        artwork = NSImage(systemSymbolName: "waveform.path", accessibilityDescription: nil)
+    }
 }

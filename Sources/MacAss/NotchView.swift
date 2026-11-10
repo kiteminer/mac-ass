@@ -145,8 +145,8 @@ struct NotchView: View {
     private var composeContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("What needs doing?").font(.system(size: 19, weight: .semibold))
-            TextField("Write a task or a list…", text: $store.draft, axis: .vertical)
-                .lineLimit(2...3).textFieldStyle(.plain).padding(12)
+            TextField("Write a task or a list…", text: $store.draft)
+                .textFieldStyle(.plain).padding(12).frame(minHeight: 52)
                 .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 .onSubmit { submit() }
             HStack {

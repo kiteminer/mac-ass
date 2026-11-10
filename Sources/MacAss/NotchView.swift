@@ -229,43 +229,48 @@ struct NotchView: View {
     }
     private var musicView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 Group {
                     if let artwork = music.artwork { Image(nsImage: artwork).resizable().scaledToFill() }
-                    else { Image(systemName: "music.note").font(.system(size: 28)).foregroundStyle(accent) }
+                    else { Image(systemName: "music.note").font(.system(size: 26)).foregroundStyle(accent) }
                 }.frame(width: 64, height: 64).background(.white.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(music.title).font(.title3.weight(.semibold)).lineLimit(2)
-                    Text(music.artist).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(music.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text(music.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 22) {
+                        Button { music.command("previous track") } label: { Image(systemName: "backward.fill") }.help("Previous track")
+                        Button { music.command("playpause") } label: { Image(systemName: music.playing ? "pause.fill" : "play.fill") }.help("Play or pause")
+                        Button { music.command("next track") } label: { Image(systemName: "forward.fill") }.help("Next track")
+                    }.disabled(!music.enabled)
                 }
+                Spacer(minLength: 0)
+                TimelineView(.animation(minimumInterval: 0.15, paused: !music.playing || reduceMotion)) { context in
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(0..<5) { i in
+                            Capsule().fill(accent.opacity(0.8)).frame(width: 3,
+                                height: music.playing ? 5 + 15 * abs(sin(context.date.timeIntervalSinceReferenceDate * 3 + Double(i))) : 4)
+                        }
+                    }.frame(width: 25, height: 24)
+                }.accessibilityLabel(music.playing ? "Playing" : "Paused")
             }
-            if music.enabled {
-                ProgressView(value: min(1, max(0, music.position / music.duration))).tint(accent)
-                HStack(spacing: 32) {
-                    Button { music.command("previous track") } label: { Image(systemName: "backward.fill") }
-                    Button { music.command("playpause") } label: { Image(systemName: music.playing ? "pause.fill" : "play.fill").font(.title) }
-                    Button { music.command("next track") } label: { Image(systemName: "forward.fill") }
-                }.frame(maxWidth: .infinity)
-            } else {
-                Button("Connect a player in settings") { store.tab = "settings" }
-            }
+            ProgressView(value: min(1, max(0, music.position / music.duration))).tint(accent)
+            if !music.enabled { Button("Enable music") { music.enabled = true } }
             if !music.message.isEmpty { Text(music.message).font(.caption).foregroundStyle(.secondary) }
-            Divider()
             Button { store.tab = "tasks" } label: {
                 HStack {
                     Image(systemName: "square.stack")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(store.current?.title ?? "Open workspace").lineLimit(2)
-                        Text("Tasks, files & clipboard").font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.current?.title ?? "Open workspace").font(.caption.weight(.medium)).lineLimit(1)
+                        Text("Tasks, files & clipboard").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if store.current != nil { Text(store.timeLabel).monospacedDigit() }
-                    Image(systemName: "chevron.right")
-                }.padding(14).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    if store.current != nil { Text(store.timeLabel).font(.caption).monospacedDigit() }
+                    Image(systemName: "chevron.right").font(.caption)
+                }.padding(10).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
             }
             if store.current != nil {
-                HStack { ForEach([5, 10, 15], id: \.self) { n in Button("+\(n) min") { store.addTime(n) }.buttonStyle(.bordered) } }
+                HStack { ForEach([5, 10, 15], id: \.self) { n in Button("+\(n) min") { store.addTime(n) }.buttonStyle(.bordered).controlSize(.small) } }
             }
         }
     }
@@ -304,7 +309,8 @@ struct NotchView: View {
     }
     private func submitTask() {
         guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        store.addManual(draft, minutes: minutes); draft = ""
+        if (try? TaskParser.parse(draft)) != nil { store.addManual(draft, minutes: minutes); draft = "" }
+        else { store.notice = "Enter 1–20 tasks, up to 4,000 characters." }
     }
     private func addSubtask() { store.addSubtask(subtaskDraft); subtaskDraft = "" }
     private func chooseFiles() {

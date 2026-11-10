@@ -74,6 +74,7 @@ final class NotchPanel: NSPanel {
     }
     func resize(expanded: Bool) {
         guard let panel, let screen else { return }
+        if !expanded { panel.resignKey() }
         let width: CGFloat = expanded ? 400 : notchWidth + 88
         let height: CGFloat = topHeight + (expanded ? PanelLayout.height(tab: store.tab, hasTask: store.current != nil) : 0)
         let frame = NSRect(x: screen.frame.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height)

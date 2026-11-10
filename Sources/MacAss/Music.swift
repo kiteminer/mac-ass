@@ -7,7 +7,7 @@ import SwiftUI
     @Published var artist = "Spotify / Apple Music"
     @Published var playing = false
     @Published var message = ""
-    @Published var player = "Auto" { didSet { refresh() } }
+    @Published var player = "Auto" { didSet { UserDefaults.standard.set(player, forKey: "preferredPlayer"); refresh() } }
     @Published var artwork: NSImage?
     @Published var position = 0.0
     @Published var duration = 1.0
@@ -18,6 +18,7 @@ import SwiftUI
     private var observer: NSObjectProtocol?
     init() {
         enabled = !UserDefaults.standard.bool(forKey: "musicDisabled")
+        player = UserDefaults.standard.string(forKey: "preferredPlayer") ?? "Auto"
         observer = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.spotify.client.PlaybackStateChanged"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }

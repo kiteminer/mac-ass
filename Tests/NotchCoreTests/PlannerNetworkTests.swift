@@ -74,4 +74,21 @@ final class PlannerNetworkTests: XCTestCase {
         XCTAssertTrue(result.usedFallback)
         XCTAssertEqual(StubProtocol.calls, 1)
     }
+    func testSuccessfulOllamaResponseActuallyUsesModelTasks() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        StubProtocol.handler = { _ in
+            let plan = #"{"tasks":[{"title":"Wash dishes","minutes":15,"subtasks":[]},{"title":"Play a game","minutes":30,"subtasks":[]}]}"#
+            return (200, try JSONSerialization.data(withJSONObject: ["message": ["content": plan]]))
+        }
+        let result = try await LocalPlanner.plan("Play a game and wash dishes", configuration: PlannerConfiguration(), session: session)
+        XCTAssertFalse(result.usedFallback)
+        XCTAssertEqual(result.tasks.map(\.title), ["Wash dishes", "Play a game"])
+        XCTAssertEqual(result.tasks.map(\.minutes), [15, 30])
+    }
+    func testUnknownModelErrorIsPreserved() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        StubProtocol.handler = { _ in (404, Data(#"{"error":"model was not found"}"#.utf8)) }
+        let result = try await LocalPlanner.plan("Work", configuration: PlannerConfiguration(), session: session)
+        XCTAssertTrue(result.failure?.contains("model was not found") == true)
+    }
 }

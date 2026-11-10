@@ -26,3 +26,12 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertEqual(PageBounds.page(4, count: 0, size: 3), 0)
     }
 }
+
+final class PlanFormattingTests: XCTestCase {
+    func testFencedPlanAndReasoningSuffixAreDecoded() throws {
+        let json = #"{"tasks":[{"title":"Wash dishes","minutes":15,"subtasks":[]}]}"#
+        for value in ["```json\n" + json + "\n```", "<think>Private reasoning</think>\n" + json] {
+            XCTAssertEqual(try LocalPlanner.decodePlan(Data(value.utf8)).first?.title, "Wash dishes")
+        }
+    }
+}

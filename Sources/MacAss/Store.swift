@@ -115,7 +115,7 @@ struct SavedState: Codable {
                 let result = try await LocalPlanner.plan(input, configuration: config)
                 try Task.checkCancellation()
                 let wasEmpty = state.tasks.isEmpty
-                guard !result.usedFallback else { draft = input; notice = "Planning failed. Your text is saved in New task. Check the model and retry."; NSSound(named: "Glass")?.play(); return }
+                guard !result.usedFallback else { draft = input; notice = (result.failure ?? "Planning failed.") + " Your text is saved in New task."; NSSound(named: "Glass")?.play(); return }
                 state.tasks += result.tasks
                 plansAdded += 1
                 if wasEmpty { startFirst() }

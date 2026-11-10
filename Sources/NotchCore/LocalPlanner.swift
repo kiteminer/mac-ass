@@ -13,6 +13,7 @@ public struct PlannerConfiguration: Codable {
 public struct PlanResult {
     public let tasks: [FocusTask]
     public let usedFallback: Bool
+    public let failure: String?
 }
 
 // No redirects: a loopback service cannot redirect private task text off the device.
@@ -38,7 +39,13 @@ public enum LocalPlanner {
             struct Item: Decodable { let title: String; let minutes: Int; let subtasks: [String] }
             let tasks: [Item]
         }
-        let reply = try JSONDecoder().decode(Reply.self, from: data)
+        guard data.count <= 32_768 else { throw PlanError.invalidResponse }
+        var text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let end = text.range(of: "</think>", options: .backwards) { text = String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines) }
+        if text.hasPrefix("```"), let newline = text.firstIndex(of: "\n"), text.hasSuffix("```") {
+            text = String(text[text.index(after: newline)..<text.index(text.endIndex, offsetBy: -3)]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let reply = try JSONDecoder().decode(Reply.self, from: Data(text.utf8))
         guard (1...20).contains(reply.tasks.count) else { throw PlanError.invalidResponse }
         return try reply.tasks.map { item in
             let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,6 +75,7 @@ public enum LocalPlanner {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 90; config.timeoutIntervalForResource = 100
         config.connectionProxyDictionary = [:]
+        var failure = "The model returned an invalid task plan. Check its name and try again."
         let session = suppliedSession ?? URLSession(configuration: config, delegate: LocalOnlyDelegate(), delegateQueue: nil)
         defer { if suppliedSession == nil { session.invalidateAndCancel() } }
         // At most one schema repair; network/HTTP failures fall back immediately.
@@ -89,15 +97,21 @@ public enum LocalPlanner {
             let data: Data
             do {
                 let (bytes, response) = try await session.bytes(for: request)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { break }
+                guard let http = response as? HTTPURLResponse else { break }
                 var buffer = Data()
                 for try await byte in bytes {
                     guard buffer.count < 131_072 else { throw PlanError.invalidResponse }
                     buffer.append(byte)
                 }
+                guard http.statusCode == 200 else {
+                    let detail = (try? JSONSerialization.jsonObject(with: buffer) as? [String: Any])?["error"] as? String
+                    failure = "Server HTTP \(http.statusCode)" + (detail.map { ": " + String($0.prefix(180)) } ?? ". Check the model name in Settings.")
+                    break
+                }
                 data = buffer
             } catch {
                 try Task.checkCancellation()
+                failure = "Server request failed: \(error.localizedDescription)"
                 break
             }
             do {
@@ -110,10 +124,10 @@ public enum LocalPlanner {
                 guard let content, let json = content.data(using: .utf8) else { throw PlanError.invalidResponse }
                 let tasks = try decodePlan(json)
                 try Task.checkCancellation()
-                return PlanResult(tasks: tasks, usedFallback: false)
+                return PlanResult(tasks: tasks, usedFallback: false, failure: nil)
             } catch { continue }
         }
         try Task.checkCancellation()
-        return PlanResult(tasks: originals, usedFallback: true)
+        return PlanResult(tasks: originals, usedFallback: true, failure: failure)
     }
 }

@@ -61,6 +61,7 @@ final class NotchPanel: NSPanel {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(configureScreen), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         panel.orderFrontRegardless()
+        if CommandLine.arguments.contains("--show-window") { openShelf(); store.pinned = true }
     }
     @objc func configureScreen() {
         screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main

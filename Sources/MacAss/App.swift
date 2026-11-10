@@ -46,7 +46,7 @@ final class NotchPanel: NSPanel {
         status.menu = menu
         configureScreen()
         store.$expanded.removeDuplicates().sink { [weak self] open in
-            DispatchQueue.main.async { self?.updateInteraction(open: open) }
+            DispatchQueue.main.async { guard let self else { return }; self.updateInteraction(open: self.store.expanded) }
         }.store(in: &subscriptions)
         monitors.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.configureScreen() }

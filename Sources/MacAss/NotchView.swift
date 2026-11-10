@@ -103,7 +103,7 @@ struct NotchView: View {
                     Text(store.timeLabel).font(.system(size: 19, weight: .medium, design: .monospaced))
                     Button(action: store.toggleTimer) { Image(systemName: store.state.clock.deadline == nil ? "play.fill" : "pause.fill").frame(width: 24, height: 28) }.help("Pause or resume")
                 }
-                ProgressView(value: progress).tint(blue)
+                progressBar(progress)
                 HStack(spacing: 7) {
                     ForEach([5, 10, 15], id: \.self) { n in Button("+\(n)m") { store.addTime(n) } }
                     Spacer()
@@ -270,7 +270,17 @@ struct NotchView: View {
                 }.frame(width: 76, height: 76).background(.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 8) {
                     Text(music.title).font(.system(size: 18, weight: .semibold)).lineLimit(1)
-                    Text(music.artist).foregroundStyle(.secondary).lineLimit(1)
+                    HStack {
+                        Text(music.artist).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        TimelineView(.animation(minimumInterval: 0.15, paused: !music.playing || reduceMotion)) { context in
+                            HStack(spacing: 2) {
+                                ForEach(0..<5) { i in
+                                    Capsule().fill(blue).frame(width: 3, height: music.playing ? 4 + 12 * abs(sin(context.date.timeIntervalSinceReferenceDate * 3 + Double(i))) : 4)
+                                }
+                            }.frame(width: 24, height: 18)
+                        }.accessibilityLabel(music.playing ? "Playing" : "Paused")
+                    }
                     HStack(spacing: 18) {
                         Button { music.command("previous track") } label: { Image(systemName: "backward.fill") }
                         Button { music.command("playpause") } label: { Image(systemName: music.playing ? "pause.fill" : "play.fill") }
@@ -278,7 +288,7 @@ struct NotchView: View {
                     }.disabled(!music.enabled)
                 }
             }
-            ProgressView(value: min(1, max(0, music.position / music.duration))).tint(blue)
+            progressBar(min(1, max(0, music.position / music.duration)))
             if !music.message.isEmpty { Text(music.message).font(.system(size: 12)).lineLimit(2).foregroundStyle(.secondary) }
             Button { store.tab = "tasks" } label: {
                 HStack {
@@ -320,6 +330,14 @@ struct NotchView: View {
                 Button("Quit MacAss") { NSApp.terminate(nil) }
             }
         }
+    }
+    private func progressBar(_ value: Double) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.18))
+                Capsule().fill(blue).frame(width: geometry.size.width * value)
+            }
+        }.frame(height: 4)
     }
     private func sectionTitle(_ title: String, count: Int) -> some View {
         Text("\(title) · \(count)").font(.system(size: 17, weight: .semibold))

@@ -40,10 +40,10 @@ struct NotchView: View {
                         Button { store.pinned.toggle() } label: { Image(systemName: store.pinned ? "pin.fill" : "pin") }.help("Pin panel")
                     }
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 10) {
                             if store.tab == "music" { musicView }
                             else if store.tab == "settings" { settingsView }
-                            else { composer; taskView; Divider(); shelfView }
+                            else { composer; if store.current != nil { taskView }; Divider(); shelfView }
                             if !store.notice.isEmpty {
                                 Text(store.notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                             }
@@ -160,6 +160,7 @@ struct NotchView: View {
                     .font(.caption).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity)
                     .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
             }
+            if !store.state.shelf.isEmpty {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(store.state.shelf) { item in
@@ -183,6 +184,7 @@ struct NotchView: View {
                         }
                     }
                 }
+            }
             }
             DisclosureGroup("Clipboard history · \(store.history.count)") {
                 if !store.clipboardEnabled {
@@ -215,7 +217,7 @@ struct NotchView: View {
                 Picker("Minutes", selection: $minutes) {
                     Text("No timer").tag(0)
                     ForEach([5, 15, 25, 45, 60], id: \.self) { n in Text("\(n) min").tag(n) }
-                }.frame(width: 105)
+                }.labelsHidden().frame(width: 90)
                 Button("Add", action: submitTask).disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Spacer()
                 if store.busy {

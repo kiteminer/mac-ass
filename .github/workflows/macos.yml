@@ -5,12 +5,18 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - name: Test
         run: swift test
       - name: Build app
         run: bash scripts/build.sh
+      - name: Verify native editing shortcuts
+        run: |
+          open -n build/MacAss.app --args --verify-editing
+          sleep 5
+          test "$(cat /tmp/MacAss-editing-result.txt)" = "passed"
       - name: Verify populated window states
         run: |
           mkdir -p build/screenshots

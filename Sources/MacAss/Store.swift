@@ -18,7 +18,7 @@ struct SavedState: Codable {
 
 @MainActor final class Store: ObservableObject {
     nonisolated static let directory: URL = {
-        if CommandLine.arguments.contains("--verify-scene") { return FileManager.default.temporaryDirectory.appendingPathComponent("MacAss-verification") }
+        if CommandLine.arguments.contains("--verify-scene") || CommandLine.arguments.contains("--verify-editing") { return FileManager.default.temporaryDirectory.appendingPathComponent("MacAss-verification") }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacAss")
     }()
     private let storageURL: URL
@@ -27,6 +27,7 @@ struct SavedState: Codable {
     @Published var draft = ""
     @Published var subtaskDraft = ""
     @Published var dialogOpen = false
+    @Published var failedPlanInput: String?
     @Published var state = SavedState()
     @Published var history: [String] = []
     @Published var expanded = false
@@ -107,6 +108,7 @@ struct SavedState: Codable {
         guard !busy else { return false }
         guard (try? TaskParser.parse(input)) != nil else { notice = "Enter 1–20 tasks, up to 4,000 characters."; return false }
         do { _ = try LocalPlanner.endpoint(state.planner) } catch { notice = "Use a loopback server address in Settings."; return false }
+        failedPlanInput = nil
         busy = true; notice = "Planning in background. You can close this panel."; expanded = false
         let config = state.planner
         operation = Task {
@@ -115,14 +117,14 @@ struct SavedState: Codable {
                 let result = try await LocalPlanner.plan(input, configuration: config)
                 try Task.checkCancellation()
                 let wasEmpty = state.tasks.isEmpty
-                guard !result.usedFallback else { draft = input; notice = (result.failure ?? "Planning failed.") + " Your text is saved in New task."; NSSound(named: "Glass")?.play(); return }
+                guard !result.usedFallback else { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = (result.failure ?? "Planning failed.") + " The request is kept for Retry."; NSSound(named: "Glass")?.play(); return }
                 state.tasks += result.tasks
                 plansAdded += 1
                 if wasEmpty { startFirst() }
                 notice = "Plan ready · \(result.tasks.count) tasks. Open Queue to review."
                 tab = "tasks"; NSSound(named: "Glass")?.play(); save()
-            } catch is CancellationError { draft = input; notice = "Planning cancelled. Your text is saved." }
-            catch { draft = input; notice = "Planning failed: \(error.localizedDescription). Your text is saved in New task." }
+            } catch is CancellationError { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = "Planning cancelled. The request is kept for Retry." }
+            catch { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = "Planning failed: \(error.localizedDescription). The request is kept for Retry." }
         }
         return true
     }
@@ -172,6 +174,8 @@ struct SavedState: Codable {
         now = Date(); save()
     }
     func addTime(_ minutes: Int) {
+        guard !state.tasks.isEmpty else { return }
+        state.tasks[0].minutes += minutes
         let expired = state.clock.seconds() == 0
         state.clock.add(minutes: minutes)
         if expired { state.clock.resume() }

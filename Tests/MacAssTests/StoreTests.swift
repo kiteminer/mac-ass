@@ -74,31 +74,3 @@ final class StoreTests: XCTestCase {
         XCTAssertFalse(store.busy)
     }
 }
-
-final class EditingTests: XCTestCase {
-    @MainActor func testPanelCommandCopyPasteSelectAllAndUndo() {
-        let app = NSApplication.shared
-        let panel = NotchPanel(contentRect: NSRect(x: 100, y: 100, width: 300, height: 100), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        defer { panel.orderOut(nil) }
-        let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 250, height: 30))
-        panel.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
-        panel.contentView!.addSubview(field)
-        field.stringValue = "Original text"
-        app.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil)
-        field.selectText(nil)
-        guard let editor = panel.firstResponder as? NSTextView else { return XCTFail("Field editor did not receive focus") }
-        XCTAssertTrue(editor.allowsUndo)
-        func command(_ key: String) -> Bool {
-            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: 0)!
-            return panel.performKeyEquivalent(with: event)
-        }
-        XCTAssertTrue(command("a"))
-        XCTAssertTrue(command("c"))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Original text")
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString("Pasted text", forType: .string)
-        XCTAssertTrue(command("v"))
-        XCTAssertEqual(editor.string, "Pasted text")
-        XCTAssertTrue(command("z"))
-        XCTAssertEqual(editor.string, "Original text")
-    }
-}

@@ -131,6 +131,7 @@ struct NotchView: View {
             }
             HStack {
                 Button { store.tab = "compose" } label: { Label("New task", systemImage: "plus") }
+                if let failed = store.failedPlanInput, !store.busy { Button("Retry plan") { store.makePlan(failed) } }
                 Spacer()
                 if store.busy {
                     ProgressView().controlSize(.small)

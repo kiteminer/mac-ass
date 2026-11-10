@@ -29,7 +29,7 @@ import SwiftUI
         refresh()
     }
     func refresh() {
-        guard !CommandLine.arguments.contains("--verify-scene") else { return }
+        guard !CommandLine.arguments.contains("--verify-scene"), !CommandLine.arguments.contains("--verify-editing") else { return }
         guard enabled, !polling else { return }
         let candidates = (player == "Auto" ? ["Spotify", "Music"] : [player]).filter {
             !NSRunningApplication.runningApplications(withBundleIdentifier: $0 == "Spotify" ? "com.spotify.client" : "com.apple.Music").isEmpty

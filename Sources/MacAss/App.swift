@@ -63,6 +63,8 @@ final class NotchPanel: NSPanel {
             }
             store.installVerificationScene(scene); music.installVerificationScene()
             store.expanded = scene != "compact"; store.pinned = true
+        } else if CommandLine.arguments.contains("--verify-editing") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.verifyEditing() }
         } else if CommandLine.arguments.contains("--show-window") { openShelf(); store.pinned = true }
     }
     @objc func configureScreen() {
@@ -128,6 +130,28 @@ final class NotchPanel: NSPanel {
             edit.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
         }
         editItem.submenu = edit; menu.addItem(editItem); NSApp.mainMenu = menu
+    }
+    private func verifyEditing() {
+        // Runs inside the real AppKit event loop, isolated from the user's state.
+        let testPanel = NotchPanel(contentRect: NSRect(x: 100, y: 100, width: 300, height: 100), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 250, height: 30))
+        testPanel.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+        testPanel.contentView!.addSubview(field); field.stringValue = "Original text"
+        testPanel.makeKeyAndOrderFront(nil); field.selectText(nil)
+        var passed = false
+        if let editor = testPanel.firstResponder as? NSTextView {
+            func command(_ key: String) -> Bool {
+                let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: testPanel.windowNumber, context: nil, characters: key, charactersIgnoringModifiers: key, isARepeat: false, keyCode: 0)!
+                return testPanel.performKeyEquivalent(with: event)
+            }
+            let copied = command("a") && command("c") && NSPasteboard.general.string(forType: .string) == "Original text"
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString("Pasted text", forType: .string)
+            let pasted = command("v") && editor.string == "Pasted text"
+            passed = copied && pasted && command("z") && editor.string == "Original text"
+        }
+        let url = URL(fileURLWithPath: "/tmp/MacAss-editing-result.txt")
+        try? (passed ? "passed" : "failed").write(to: url, atomically: true, encoding: .utf8)
+        testPanel.orderOut(nil); NSApp.terminate(nil)
     }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) { pointer.stop(); store.operation?.cancel(); store.save() }

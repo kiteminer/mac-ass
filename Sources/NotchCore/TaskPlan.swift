@@ -14,6 +14,7 @@ public struct FocusTask: Codable, Identifiable, Equatable {
     public var minutes: Int
     public var explicitDuration: Bool
     public var location: String
+    public var remainingSeconds: Double?
     public init(title: String, subtasks: [Subtask] = [], minutes: Int = 25,
                 explicitDuration: Bool = false, location: String = "unknown") {
         self.title = title; self.subtasks = subtasks; self.minutes = minutes

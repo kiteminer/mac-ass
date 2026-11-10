@@ -5,19 +5,34 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - name: Test
         run: swift test
       - name: Build app
         run: bash scripts/build.sh
-      - name: Launch smoke test
+      - name: Verify native editing shortcuts
         run: |
-          open -n build/MacAss.app --args --show-window
+          open -n build/MacAss.app --args --verify-editing
           sleep 5
-          pgrep -x MacAss
-          screencapture -x build/preview.png || true
-          pkill -x MacAss
+          test "$(cat /tmp/MacAss-editing-result.txt)" = "passed"
+      - name: Verify hover and stable host frame
+        run: |
+          open -n build/MacAss.app --args --verify-hover
+          sleep 5
+          test "$(cat /tmp/MacAss-hover-result.txt)" = "passed"
+      - name: Verify populated window states
+        run: |
+          mkdir -p build/screenshots
+          for scene in empty tasks compose music files clipboard queue subtasks settings busy compact; do
+            open -n build/MacAss.app --args --verify-scene "$scene"
+            sleep 3
+            pgrep -x MacAss
+            screencapture -x "build/screenshots/$scene.png"
+            pkill -x MacAss
+            sleep 1
+          done
       - name: Package
         run: ditto -c -k --keepParent build/MacAss.app build/MacAss.zip
       - uses: actions/upload-artifact@v4
@@ -25,4 +40,4 @@ jobs:
           name: MacAss-macOS
           path: |
             build/MacAss.zip
-            build/preview.png
+            build/screenshots/*.png

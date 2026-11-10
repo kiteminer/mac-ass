@@ -17,7 +17,17 @@ struct SavedState: Codable {
 }
 
 @MainActor final class Store: ObservableObject {
-    nonisolated static let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacAss")
+    nonisolated static let directory: URL = {
+        if CommandLine.arguments.contains("--verify-scene") || CommandLine.arguments.contains("--verify-editing") || CommandLine.arguments.contains("--verify-hover") { return FileManager.default.temporaryDirectory.appendingPathComponent("MacAss-verification") }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacAss")
+    }()
+    private let storageURL: URL
+    private let pasteboard: NSPasteboard
+    private let defaults: UserDefaults
+    @Published var draft = ""
+    @Published var subtaskDraft = ""
+    @Published var dialogOpen = false
+    @Published var failedPlanInput: String?
     @Published var state = SavedState()
     @Published var history: [String] = []
     @Published var expanded = false
@@ -27,12 +37,16 @@ struct SavedState: Codable {
     @Published var plansAdded = 0
     @Published var notice = ""
     @Published var now = Date()
-    @Published var clipboardEnabled = (UserDefaults.standard.object(forKey: "clipboardEnabled") as? Bool ?? true) {
-        didSet { UserDefaults.standard.set(clipboardEnabled, forKey: "clipboardEnabled"); pasteboardCount = NSPasteboard.general.changeCount; if !clipboardEnabled { history = [] } }
+    @Published var clipboardEnabled = true {
+        didSet {
+            defaults.set(clipboardEnabled, forKey: "clipboardEnabled")
+            if clipboardEnabled { captureClipboard(force: true) }
+            else { history = [] }
+        }
     }
     var operation: Task<Void, Never>?
     private var ticker: Timer?
-    private var pasteboardCount = NSPasteboard.general.changeCount
+    private var pasteboardCount = -1
     private var announced = false
     var current: FocusTask? { state.tasks.first }
     var timeLabel: String {
@@ -40,21 +54,27 @@ struct SavedState: Codable {
         let n = Int(ceil(state.clock.seconds(at: now)))
         return String(format: "%02d:%02d", n / 60, n % 60)
     }
-    init() {
+    init(storageURL: URL = Store.directory, pasteboard: NSPasteboard = .general,
+         defaults: UserDefaults = .standard, startTimer: Bool = true) {
+        self.storageURL = storageURL; self.pasteboard = pasteboard; self.defaults = defaults
+        clipboardEnabled = defaults.object(forKey: "clipboardEnabled") as? Bool ?? true
         do {
-            try FileManager.default.createDirectory(at: Self.directory.appendingPathComponent("Shelf"), withIntermediateDirectories: true)
-            let file = Self.directory.appendingPathComponent("state.json")
+            try FileManager.default.createDirectory(at: storageURL.appendingPathComponent("Shelf"), withIntermediateDirectories: true)
+            let file = storageURL.appendingPathComponent("state.json")
             if FileManager.default.fileExists(atPath: file.path) {
                 state = try JSONDecoder().decode(SavedState.self, from: Data(contentsOf: file))
             }
         } catch { notice = "Could not read saved state." }
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        if startTimer { ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        RunLoop.main.add(ticker!, forMode: .common)
+        }
+        captureClipboard(force: true)
     }
     func save() {
         do {
-            try JSONEncoder().encode(state).write(to: Self.directory.appendingPathComponent("state.json"), options: [.atomic, .completeFileProtectionUnlessOpen])
+            try JSONEncoder().encode(state).write(to: storageURL.appendingPathComponent("state.json"), options: [.atomic, .completeFileProtectionUnlessOpen])
         } catch { notice = "Could not save changes." }
     }
     func tick() {
@@ -64,8 +84,11 @@ struct SavedState: Codable {
             notice = "Time is up. Complete the task or add more time?"; expanded = true; tab = "tasks"
             NSSound(named: "Glass")?.play()
         }
-        let pb = NSPasteboard.general
-        guard pb.changeCount != pasteboardCount else { return }
+        captureClipboard()
+    }
+    func captureClipboard(force: Bool = false) {
+        let pb = pasteboard
+        guard force || pb.changeCount != pasteboardCount else { return }
         pasteboardCount = pb.changeCount
         guard clipboardEnabled else { return }
         let excluded = ["com.agilebits.onepassword", "com.1password.1password", "com.bitwarden.desktop", "com.apple.keychainaccess"]
@@ -75,14 +98,17 @@ struct SavedState: Codable {
               let text = pb.string(forType: .string), !text.isEmpty, text.utf8.count <= 32_768 else { return }
         history.removeAll { $0 == text }; history.insert(text, at: 0); history = Array(history.prefix(40))
     }
-    func addManual(_ title: String, minutes: Int) {
-        guard let parsed = try? TaskParser.parse(title) else { notice = "Enter 1 to 20 tasks, up to 4,000 characters."; return }
+    @discardableResult func addManual(_ title: String, minutes: Int) -> Bool {
+        guard let parsed = try? TaskParser.parse(title) else { notice = "Enter 1 to 20 tasks, up to 4,000 characters."; return false }
         let wasEmpty = state.tasks.isEmpty
         state.tasks += parsed.map { var t = $0; if !t.explicitDuration { t.minutes = minutes }; return t }
-        if wasEmpty { startFirst() }; save()
+        if wasEmpty { startFirst() }; save(); return true
     }
-    func makePlan(_ input: String) {
-        guard !busy else { return }
+    @discardableResult func makePlan(_ input: String) -> Bool {
+        guard !busy else { return false }
+        guard (try? TaskParser.parse(input)) != nil else { notice = "Enter 1–20 tasks, up to 4,000 characters."; return false }
+        do { _ = try LocalPlanner.endpoint(state.planner) } catch { notice = "Use a loopback server address in Settings."; return false }
+        failedPlanInput = nil
         busy = true; notice = "Planning in background. You can close this panel."; expanded = false
         let config = state.planner
         operation = Task {
@@ -91,25 +117,53 @@ struct SavedState: Codable {
                 let result = try await LocalPlanner.plan(input, configuration: config)
                 try Task.checkCancellation()
                 let wasEmpty = state.tasks.isEmpty
-                guard !result.usedFallback else { notice = "Planning failed. No tasks added. Check the model and retry."; NSSound(named: "Glass")?.play(); return }
+                guard !result.usedFallback else { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = (result.failure ?? "Planning failed.") + " The request is kept for Retry."; NSSound(named: "Glass")?.play(); return }
                 state.tasks += result.tasks
                 plansAdded += 1
                 if wasEmpty { startFirst() }
-                notice = result.usedFallback ? "The service is unavailable or returned an invalid plan. Added the original list; you can adjust the time." : "Your plan is ready. Durations are estimates and can be adjusted."
+                notice = "Plan ready · \(result.tasks.count) tasks. Open Queue to review."
                 tab = "tasks"; NSSound(named: "Glass")?.play(); save()
-            } catch is CancellationError { notice = "Planning cancelled." }
-            catch { notice = "Check your list (up to 20 tasks) and the local server address in settings." }
+            } catch is CancellationError { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = "Planning cancelled. The request is kept for Retry." }
+            catch { failedPlanInput = input; if draft.isEmpty { draft = input }; notice = "Planning failed: \(error.localizedDescription). The request is kept for Retry." }
         }
+        return true
     }
     func startFirst() {
         announced = false
-        if let current, current.minutes > 0 { state.clock.start(minutes: current.minutes) } else { state.clock = FocusClock() }
+        if let current, current.minutes > 0 {
+            state.clock.start(minutes: current.minutes)
+            if let seconds = current.remainingSeconds {
+                state.clock.remaining = seconds; state.clock.deadline = nil; state.clock.resume()
+            }
+        } else { state.clock = FocusClock() }
         now = Date()
     }
-    func addSubtask(_ text: String) {
+    @discardableResult func addSubtask(_ text: String) -> Bool {
         let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, !state.tasks.isEmpty, state.tasks[0].subtasks.count < 30 else { return }
-        state.tasks[0].subtasks.append(Subtask(String(title.prefix(200)))); save()
+        guard !title.isEmpty, !state.tasks.isEmpty, state.tasks[0].subtasks.count < 30 else { return false }
+        state.tasks[0].subtasks.append(Subtask(String(title.prefix(200)))); save(); return true
+    }
+    func toggleSubtask(_ id: UUID) {
+        guard let i = state.tasks.first?.subtasks.firstIndex(where: { $0.id == id }) else { return }
+        state.tasks[0].subtasks[i].done.toggle(); save()
+    }
+    func deleteSubtask(_ id: UUID) {
+        guard !state.tasks.isEmpty else { return }
+        state.tasks[0].subtasks.removeAll { $0.id == id }; save()
+    }
+    func activateTask(_ id: UUID) {
+        guard let i = state.tasks.firstIndex(where: { $0.id == id }), i > 0 else { return }
+        state.tasks[0].remainingSeconds = state.clock.seconds()
+        let task = state.tasks.remove(at: i); state.tasks.insert(task, at: 0)
+        startFirst(); save()
+    }
+    func deleteTask(_ id: UUID) {
+        if current?.id == id { complete() }
+        else { state.tasks.removeAll { $0.id == id }; save() }
+    }
+    func pasteToShelf() {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty { urls.forEach(addFile) }
+        else if let text = pasteboard.string(forType: .string) { addText(text) }
     }
     func complete() {
         guard !state.tasks.isEmpty else { return }
@@ -120,6 +174,8 @@ struct SavedState: Codable {
         now = Date(); save()
     }
     func addTime(_ minutes: Int) {
+        guard !state.tasks.isEmpty else { return }
+        state.tasks[0].minutes += minutes
         let expired = state.clock.seconds() == 0
         state.clock.add(minutes: minutes)
         if expired { state.clock.resume() }
@@ -133,7 +189,7 @@ struct SavedState: Codable {
     func addFile(_ url: URL) {
         guard url.isFileURL, state.shelf.count < 100 else { return }
         let access = url.startAccessingSecurityScopedResource()
-        let destination = Self.directory.appendingPathComponent("Shelf").appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+        let destination = storageURL.appendingPathComponent("Shelf").appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
         Task {
             let result = await Task.detached { () -> Bool in
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -156,6 +212,23 @@ struct SavedState: Codable {
         state.shelf.removeAll { $0.id == item.id }; save()
     }
     func copy(_ text: String) {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+        pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
+        notice = "Copied."
+    }
+}
+
+extension Store {
+    func installVerificationScene(_ scene: String) {
+        notice = ""; state = SavedState(); history = []; draft = ""; state.shelf = []
+        if scene != "empty" && scene != "compose" && scene != "settings" {
+            state.tasks = [FocusTask(title: "Prepare the presentation", subtasks: [Subtask("Outline the story"), Subtask("Review the numbers"), Subtask("Export the final slides"), Subtask("Send the deck")], minutes: 25),
+                           FocusTask(title: "Update resume and portfolio", minutes: 45), FocusTask(title: "Pick up groceries", minutes: 30), FocusTask(title: "Water the plants", minutes: 5), FocusTask(title: "Read project notes", minutes: 15)]
+            startFirst()
+        }
+        history = ["Meeting notes: revise the timeline and confirm the launch date.", "A second clipboard entry with a deliberately long title to exercise wrapping.", "https://example.com/project", "Fourth entry"]
+        state.shelf = [ShelfItem(text: "A saved idea for the next project", name: "Project idea"), ShelfItem(text: "Review checklist", name: "Checklist"), ShelfItem(text: "Meeting notes", name: "Notes"), ShelfItem(text: "Fourth saved item", name: "More notes")]
+        tab = scene == "empty" || scene == "compact" ? "tasks" : scene
+        if scene == "compose" { draft = "Clean up, update resume (experience, tools), go shopping" }
+        if scene == "busy" { tab = "tasks"; busy = true; notice = "Planning in background. You can close this panel." }
     }
 }

@@ -61,15 +61,6 @@ final class NotchCoreTests: XCTestCase {
     }
 }
 
-final class PanelLayoutTests: XCTestCase {
-    func testPanelSizesFollowContent() {
-        XCTAssertEqual(PanelLayout.height(tab: "music", hasTask: false), 230)
-        XCTAssertEqual(PanelLayout.height(tab: "tasks", hasTask: false), 450)
-        XCTAssertEqual(PanelLayout.height(tab: "tasks", hasTask: true), 650)
-        XCTAssertEqual(PanelLayout.height(tab: "settings", hasTask: false), 580)
-    }
-}
-
 final class FreeTextPlanTests: XCTestCase {
     func testIndependentActionsBecomeTasks() throws {
         let data = Data(#"{"tasks":[{"title":"Wash dishes","minutes":15,"subtasks":[]},{"title":"Play a game","minutes":30,"subtasks":[]}]}"#.utf8)

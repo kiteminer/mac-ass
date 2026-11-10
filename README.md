@@ -1,22 +1,19 @@
 # MacAss
 
-A native MacBook notch shelf for file and text drag-and-drop, clipboard history, tasks and subtasks, a focus timer (+5/+10/+15 minutes), Apple Music / Spotify controls, and task planning through a local server. SwiftUI + AppKit, macOS 14+, no third-party dependencies. MIT licensed.
-
-## Run
-
-Install command-line tools with `xcode-select --install`, then:
+A compact MacBook notch workspace: focus timer, task queue and subtasks, file/text drag-and-drop, text clipboard history, Spotify / Apple Music, and local task planning. macOS 14+, SwiftUI + AppKit. MIT licensed.
 
 ```sh
-git clone --branch fix/planning-and-panel https://github.com/kiteminer/mac-ass.git
+xcode-select --install  # once, if command-line tools are missing
+git clone --branch fix/stable-notch-shell https://github.com/kiteminer/mac-ass.git
 cd mac-ass
 bash scripts/build.sh
 open build/MacAss.app
 ```
 
-After the PR is merged, you can clone `main`. Move the built app to Applications if desired. Run tests with `swift test`. The macOS workflow also provides a ZIP under Artifacts → MacAss-macOS.
+Hover at the notch to open. Move away to close, pin to keep open, Escape to close and unpin. Focus, Music, Files and Clipboard have separate views inside the same compact panel. New task supports Return; Auto plan runs after dismissal. Queue → Start switches tasks; Subtasks adds checkable steps. Standard Command-C/V/X/A/Z shortcuts work in text fields.
 
-Hover over the notch to expand the panel. From Music, click **Focus** to open the shelf; dropping a file opens it immediately. Pin the panel to keep it open. Enable clipboard history and player control in Settings.
+In Settings, use Ollama at `http://127.0.0.1:11434`, Check connection, then choose the exact model from Models and Save. If you already use `ollama run`, keep Ollama running. Otherwise start `ollama serve`. MLX servers can use the compatible protocol and their own port.
 
-For **Plan list**, select Ollama or MLX / OpenAI-compatible, enter a loopback server address and your exact model name. Start the server separately. If it is unavailable, the app reports failure without adding tasks. The first timer starts automatically when the queue was empty.
+Tests: `swift test`. The macOS workflow provides the app ZIP and screenshots of populated views. Build artifacts are ad-hoc signed, not notarized.
 
-[Configuration, limitations, and Mac verification](docs/USAGE.md)
+[Usage and limitations](docs/USAGE.md) · [Fixes and verification](docs/REBUILD.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
